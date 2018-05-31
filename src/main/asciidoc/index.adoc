@@ -1,12 +1,100 @@
 :toc: left
-:toclevels: 3
+:toclevels: 2
 :sectnums:
+:sectnumlevels: 2
 :sectanchors:
-:source-highlighter: coderay
 :nofooter:
 
 = OpenShift Cloud Functions
 
-== Do this
+OpenShift Cloud Functions is a productization of the Apache OpenWhisk project
+for use with Red Hat OpenShift. This Early Access (EA) repository provides
+some basic getting started instructions for using the EA OpenShift Cloud
+Functions bits in an existing OpenShift environment.
 
-== Then Do that.
+== Installation
+The installation of the OCF EA assumes that one already has an existing
+OpenShift environment available and accessible. No special cluster
+permissions or settings are required to deploy the OCF infrastructure.
+
+[NOTE]
+====
+Please see the `oc cluster` appendix for information on testing locally.
+====
+
+=== Installation Prerequisites
+
+==== Resource Requirements
+
+The OCF instrastructure has several parts, each with different resource requirements:
+
+* `controller``
+** 512 Mi of memory
+* `couchdb`
+** 512 Mi of memory
+** 500 milicores of CPU
+* `invoker`
+** 1 Gi of memory
+** 500 milicores of CPU
+* `nginx`
+** The `nginx` container inherits project defaults
+* `strimzi`
+** The `strimzi` container inherits project defaults
+* `alarmprovider`
+** The `alarmprovider` container inherits project defaults
+
+There are a number of other jobs and activities that will run with project
+defaults as well.
+
+In total, it is recommended that you have a minimum of:
+
+* 4 GiB of memory 
+* 4 CPU cores
+
+available to run the OCF infrastructure. These are the bare minimums for
+testing.
+
+Additionally, you may wish to have a few gigabytes of persistent storage
+available. Persistent storage is used so that you can retain the various
+settings, function definitions, history and etc.
+
+==== Disconnected Installations
+
+If your OpenShift environment is not connected to the internet, you will need
+to fetch the following container images in advance of attempting to
+install/deploy OCF:
+
+* image
+* image
+* image
+
+=== Deploying OCF
+
+==== Create a Project
+You will want a project to hold the OCF infrastructure. Be sure that it has
+sufficient quota, limits, and requests to accommodate the resource
+requirements detailed above.
+
+```
+oc create blah
+```
+
+==== Process the Template
+We have conveniently provided an OpenShift template that will deploy all of the objects required to run the OCF infrastructure. It contains many sensible defaults and aligns with the resource requirements detailed above. To instantiate the OCF infrastructure, simply `process` the template:
+
+```
+oc process -f https://git.io/openwhisk-template | oc create -f -
+```
+
+=== Wait for Success
++...+ profit!
+
+== Initial Configuration
+
+* users
+* things
+* stuff
+
+== `oc cluster`
+For local testing purposes, one can use an OpenShift environment provided via
+`oc cluster`, a subcommand built into the OpenShift CLI.
