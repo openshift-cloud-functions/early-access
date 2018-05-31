@@ -4,6 +4,7 @@
 :sectnumlevels: 2
 :sectanchors:
 :nofooter:
+:source-highlighter: coderay
 
 = OpenShift Cloud Functions
 
@@ -28,7 +29,7 @@ Please see the `oc cluster` appendix for information on testing locally.
 
 The OCF instrastructure has several parts, each with different resource requirements:
 
-* `controller``
+* `controller`
 ** 512 Mi of memory
 * `couchdb`
 ** 512 Mi of memory
@@ -46,13 +47,9 @@ The OCF instrastructure has several parts, each with different resource requirem
 There are a number of other jobs and activities that will run with project
 defaults as well.
 
-In total, it is recommended that you have a minimum of:
-
-* 4 GiB of memory 
-* 4 CPU cores
-
-available to run the OCF infrastructure. These are the bare minimums for
-testing.
+In total, it is recommended that you have a minimum of **4 GiB of memory**
+and **4 CPU cores** available to run the OCF infrastructure. These are the
+bare minimums for testing.
 
 Additionally, you may wish to have a few gigabytes of persistent storage
 available. Persistent storage is used so that you can retain the various
@@ -61,12 +58,30 @@ settings, function definitions, history and etc.
 ==== Disconnected Installations
 
 If your OpenShift environment is not connected to the internet, you will need
-to fetch the following container images in advance of attempting to
-install/deploy OCF:
+to fetch container images ahead of time and will need to modify the OCF
+deployment template. You must download the following container images in
+advance of attempting to install/deploy OCF:
 
 * image
 * image
 * image
+
+The easiest way to do this will be from a RHEL7 or Fedora 27+ host with the
+`podman` package installed. You can run this bit of `bash`-fu to make things
+work:
+
+```bash
+for image in couchdb foo bar baz
+do
+  podman pull $image
+  podman save $image -o $image.tar
+done
+```
+
+Once you have all of the tarballs, you can transfer them to a host with
+access to your OpenShift cluster. It will also need `podman` installed. See
+the additional notes below in the **Deploying OCF** section for what to do in
+disconnected environments.
 
 === Deploying OCF
 
@@ -76,11 +91,60 @@ sufficient quota, limits, and requests to accommodate the resource
 requirements detailed above.
 
 ```
-oc create blah
+oc create project ocf-infra
 ```
 
+You will then deploy the OCF infrastructure into this project.
+
+[NOTE]
+====
+In a disconnected environment you will need to load the images into the
+OpenShift registry before you can deploy the OCF infrastructure. Now that you
+have a project, you also have a place in the registry to push the images.
+From the system with the tarballs from earlier, perform the following
+commands:
+
+```bash
+podman login ${YOURSPECIALSAUCEHERE}
+for image in couchdb foo bar
+do
+  podman something $image
+  podman push $imageSOMETHING
+done
+====
+
 ==== Process the Template
-We have conveniently provided an OpenShift template that will deploy all of the objects required to run the OCF infrastructure. It contains many sensible defaults and aligns with the resource requirements detailed above. To instantiate the OCF infrastructure, simply `process` the template:
+We have conveniently provided an OpenShift template that will deploy all of
+the objects required to run the OCF infrastructure. It contains many sensible
+defaults and aligns with the resource requirements detailed above. 
+
+[NOTE]
+====
+For disconnected installations, you will need to modify the template to tell
+OpenShift to use the images that you just pushed into the registry in the
+`ocf-infra` project.
+
+First, get the template:
+
+    wget https://git.io/openwhisk-template
+
+Then, you will need to modify the template. Anywhere you see an `ImageStream`
+block, you will need to change it to look something like the following:
+
+```YAML
+things
+  and-stuff:
+```
+Once you have appropriately changed all of the `ImageStream` blocks, you can
+then `process` the template like so:
+
+    oc process -f ./template.yml | oc create -f -
+
+Please skip the next step that shows processing the template directly from
+the web.
+====
+
+To instantiate the OCF infrastructure, simply `process` the template:
 
 ```
 oc process -f https://git.io/openwhisk-template | oc create -f -
