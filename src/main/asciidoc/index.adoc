@@ -4,7 +4,7 @@
 :sectnumlevels: 2
 :sectanchors:
 :nofooter:
-//:source-highlighter: coderay
+:source-highlighter: coderay
 
 = OpenShift Cloud Functions
 
@@ -53,7 +53,10 @@ bare minimums for testing.
 
 Additionally, you may wish to have a few gigabytes of persistent storage
 available. Persistent storage is used so that you can retain the various
-settings, function definitions, history and etc.
+settings, function definitions, history and etc. In the case of crashes or
+other malfunctions, having persistent storage is going to make things much
+easier, so it is strongly encouraged to follow the notes below regarding
+provisioning an environment that can use it.
 
 ==== Disconnected Installations
 
@@ -144,7 +147,13 @@ you will need to use:
 
     oc process -f https://raw.githubusercontent.com/openshift-cloud-functions/early-access/master/template.yaml | oc create -f -
 
+If you would like to use persistent storage with your OCF installation, use
+the following template which includes PersistentVolumeClaims:
+
+    oc process -f https://raw.githubusercontent.com/openshift-cloud-functions/early-access/master/persistent-template.yaml | oc create -f -
+
 Please skip the next step.
+
 ====
 
 To instantiate the OCF infrastructure, simply `process` the template:
@@ -152,6 +161,34 @@ To instantiate the OCF infrastructure, simply `process` the template:
 ```
 oc process -f https://git.io/openwhisk-template | oc create -f -
 ```
+
+Or, alternatively, if you want to use persistent storage (with PersistentVolumeClaims) you can do the following:
+
+```
+oc process -f https://raw.githubusercontent.com/projectodd/openwhisk-openshift/master/persistent-template.yml | oc create -f -
+```
+
+[NOTE]
+====
+If you want a more heavy-duty and higher-powered OCF deployment, there is an
+environment file that can be used with either template (disconnected or
+otherwise). It increases the resources of individual components (CPU/memory)
+and also increases the count of some components (eg: couchdb). First, fetch
+the file:
+
+    https://raw.githubusercontent.com/projectodd/openwhisk-openshift/master/larger.env
+
+If you don't want to use persistent storage, you will need to remove the
+lines in `larger.env` that have `_VOLUME_CAPACITY`.
+
+Then, you can use this file with `process`:
+
+    oc process -f ... --param-file=larger.env ...
+
+Using the larger environment will consume significantly more resources. You
+will need at least **20Gi of memory** and **8 CPUs** across your OpenShift
+infrastructure.
+====
 
 === Wait for Success
 Eventually all of the pods will start running. After a few minutes, execute
@@ -174,11 +211,17 @@ wskinvoker-00-1-prewarm-nodejs6              1/1       Running     0          10
 wskinvoker-00-2-prewarm-nodejs6              1/1       Running     0          10m
 ```
 
+[NOTE]
+====
+If you are using the "larger" environment files then you will likely see a
+larger quantity of pods in the output.
+====
+
 Notice that all pods are either `Running` and are `1/1` for `READY` or are
 `Completed`. If you have any failures or errors you probably need to contact
 us so that we can figure out what is wrong.
 
-==== Install the CLI
+==== Install the OpenWhisk CLI
 OpenShift Cloud Functions still directly uses the `wsk` CLI from the
 OpenWhisk project. You can download a CLI for your system from the following
 URL:
@@ -207,8 +250,6 @@ Usage:
 ...
 ```
 
-TODO: Persistent Storage Stuff
-
 == Initial Configuration
 Now that OpenShift Cloud Functions is installed, you have to do some basic
 configuration before it will be very useful.
@@ -227,6 +268,7 @@ able to talk to the OpenShift Cloud Functions API:
     AUTH_SECRET=$(oc get secret whisk.auth -o yaml | grep "system:" | awk '{print $2}' | base64 --decode)
     wsk property set --auth $AUTH_SECRET --apihost $(oc get route/openwhisk --template="{{.spec.host}}")
 
+=== Validate CLI
 Now, you can validate that you can correctly talk to OCF. Use the `-i` option
 to avoid the validation error triggered by the self-signed cert in the
 `nginx` service.
@@ -236,9 +278,64 @@ to avoid the validation error triggered by the self-signed cert in the
 
 If these two commands work, you are up, running, and ready to continue!
 
-TODO: People might want to use their own certificates. Do we have a way to do
-this?
+// TODO: People might want to use their own certificates. Do we have a way to do this?
+
+== Getting Started
+There are many existing exercises and examples in the OpenShift Cloud
+Functions scenarios that can be found here:
+
+    https://learn.openshift.com/serverless/
+
+You should take some time to go through these scenarios but, instead of
+executing them in your browser, run the commands locally against your
+OpenShift Cloud Functions environment.
+
+If you have any problems, please make sure to contact us.
+
+== Now What?
+Now that you have a general understanding of how OpenWhisk / OpenShift Cloud
+Functions works, go ahead and try to come up with your own scenarios and
+integrate it into your applications and workflows.
 
 == Local OpenShift Cluster
 For local testing purposes, one can use an OpenShift environment provided via
-`oc cluster`, a subcommand built into the OpenShift CLI.
+`oc cluster`, a subcommand built into the OpenShift CLI. However, with
+OpenShift 3.9 there is an issue regarding using ImageStreams for the source
+of Kubernetes resources (Deployments and others).
+
+You will need to make sure you are persisting your `oc cluster` config and
+data somewhere, and then stop your cluster, and edit the `master-config.yaml`
+to have the following stanza in the `admissionConfig` section:
+
+```YAML
+admissionConfig:
+  pluginConfig:
+    GenericAdmissionWebhook:
+      configuration:
+        apiVersion: v1
+        disable: false
+        kind: DefaultAdmissionConfig
+      location: ""
+    openshift.io/ImagePolicy:
+      configuration:
+        apiVersion: v1
+        executionRules:
+        - matchImageAnnotations:
+          - key: images.openshift.io/deny-execution
+            value: "true"
+          name: execution-denied
+          onResources:
+          - resource: pods
+          - resource: builds
+          reject: true
+          skipOnResolutionFailure: true
+        kind: ImagePolicyConfig
+      location: ""
+```
+
+There are actually two `admissionConfig` sections. You want the one at the
+top of the config file and not the one that is nested under
+`kubernetesMasterConfig`.
+
+Once this change is made, you can restart your cluster and then follow the
+installation/configuration instructions for OpenShift Cloud Functions.
