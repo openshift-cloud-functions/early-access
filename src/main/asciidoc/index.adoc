@@ -4,7 +4,7 @@
 :sectnumlevels: 2
 :sectanchors:
 :nofooter:
-:source-highlighter: coderay
+//:source-highlighter: coderay
 
 = OpenShift Cloud Functions
 
@@ -64,6 +64,7 @@ advance of attempting to install/deploy OCF:
 
 * `projectodd/controller`
 * `projectodd/invoker`
+* `projectodd/action-nodejs-6`
 * `projectodd/action-nodejs-8`
 * `projectodd/action-java-8`
 * `projectodd/action-python-3`
@@ -79,8 +80,9 @@ advance of attempting to install/deploy OCF:
 * `busybox`
 
 The easiest way to do this will be from a RHEL7 or Fedora 27+ host with the
-`podman` package installed. In a folder where you want the exported images to
-land, you can run the `image-pull.sh` script from this early access repository:
+`podman` package installed. **As the `root` user** In a folder where you want
+the exported images to land, you can run the `image-pull.sh` script from this
+early access repository:
 
 ```bash
 cd
@@ -119,7 +121,7 @@ the system with SDN access to your OpenShift environment, and in a folder
 with **only** the tarballs from earlier, perform the following commands
 logged in to OpenShift with a user account that has at least `cluster-reader`
 privileges (you need access to the `openshift` project serviceaccounts and
-secrets):
+secrets) and **as the `root` system user**:
 
 ```bash
 cd folder-with-tarballs
@@ -152,14 +154,91 @@ oc process -f https://git.io/openwhisk-template | oc create -f -
 ```
 
 === Wait for Success
-+...+ profit!
+Eventually all of the pods will start running. After a few minutes, execute
+`oc get pods` and you should see output that looks similar to the following:
+
+```
+NAME                                         READY     STATUS      RESTARTS   AGE
+alarmprovider-574d685789-djfpq               1/1       Running     0          13m
+controller-0                                 1/1       Running     2          13m
+couchdb-0                                    1/1       Running     0          13m
+install-catalog-7p8c8                        0/1       Completed   0          13m
+invoker-0                                    1/1       Running     0          13m
+nginx-648445cbd9-2j2jd                       1/1       Running     0          13m
+preload-openwhisk-runtimes-z9krn             0/1       Completed   0          13m
+refresh-activations-1528129200-697t7         0/1       Completed   0          2m
+strimzi-cluster-controller-778d94d86-pxc2c   1/1       Running     0          13m
+strimzi-openwhisk-kafka-0                    1/1       Running     0          13m
+strimzi-openwhisk-zookeeper-0                1/1       Running     0          13m
+wskinvoker-00-1-prewarm-nodejs6              1/1       Running     0          10m
+wskinvoker-00-2-prewarm-nodejs6              1/1       Running     0          10m
+```
+
+Notice that all pods are either `Running` and are `1/1` for `READY` or are
+`Completed`. If you have any failures or errors you probably need to contact
+us so that we can figure out what is wrong.
+
+==== Install the CLI
+OpenShift Cloud Functions still directly uses the `wsk` CLI from the
+OpenWhisk project. You can download a CLI for your system from the following
+URL:
+
+    https://github.com/projectodd/openwhisk-openshift/releases/tag/latest
+
+The CLI will talk to OpenShift Cloud Functions' APIs which means that it will
+need to be on a host that will have network access to the OpenShift
+environment through OpenShift's router. You will also want this host to have
+the `oc` binary installed.
+
+Unpack the `wsk` binary into a folder that is in your path, and then simply
+execute `wsk` to validate that it is working. You will see something like the following:
+
+```
+
+        ____      ___                   _    _ _     _     _
+       /\   \    / _ \ _ __   ___ _ __ | |  | | |__ (_)___| | __
+  /\  /__\   \  | | | | '_ \ / _ \ '_ \| |  | | '_ \| / __| |/ /
+ /  \____ \  /  | |_| | |_) |  __/ | | | |/\| | | | | \__ \   <
+ \   \  /  \/    \___/| .__/ \___|_| |_|__/\__|_| |_|_|___/_|\_\
+  \___\/ tm           |_|
+
+Usage:
+  wsk [command]
+...
+```
+
+TODO: Persistent Storage Stuff
 
 == Initial Configuration
+Now that OpenShift Cloud Functions is installed, you have to do some basic
+configuration before it will be very useful.
 
-* users
-* things
-* stuff
+=== Configure CLI
+Since you have previously gotten `wsk` working, and you have `oc` installed
+and working, first make sure you are logged in to OpenShift with a user that
+has `edit` access to the `ocf-infra` project:
 
-== `oc cluster`
+    oc login -u someuser
+    oc project ocf-infra
+
+You can then run the following two commands to configure the `wsk` CLI to be
+able to talk to the OpenShift Cloud Functions API:
+
+    AUTH_SECRET=$(oc get secret whisk.auth -o yaml | grep "system:" | awk '{print $2}' | base64 --decode)
+    wsk property set --auth $AUTH_SECRET --apihost $(oc get route/openwhisk --template="{{.spec.host}}")
+
+Now, you can validate that you can correctly talk to OCF. Use the `-i` option
+to avoid the validation error triggered by the self-signed cert in the
+`nginx` service.
+
+    wsk -i list
+    wsk -i action invoke /whisk.system/utils/echo -p message hello -b
+
+If these two commands work, you are up, running, and ready to continue!
+
+TODO: People might want to use their own certificates. Do we have a way to do
+this?
+
+== Local OpenShift Cluster
 For local testing purposes, one can use an OpenShift environment provided via
 `oc cluster`, a subcommand built into the OpenShift CLI.
