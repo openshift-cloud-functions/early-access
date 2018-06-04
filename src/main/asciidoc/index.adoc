@@ -1,12 +1,341 @@
 :toc: left
-:toclevels: 3
+:toclevels: 2
 :sectnums:
+:sectnumlevels: 2
 :sectanchors:
-:source-highlighter: coderay
 :nofooter:
+:source-highlighter: coderay
 
 = OpenShift Cloud Functions
 
-== Do this
+OpenShift Cloud Functions is a productization of the Apache OpenWhisk project
+for use with Red Hat OpenShift. This Early Access (EA) repository provides
+some basic getting started instructions for using the EA OpenShift Cloud
+Functions bits in an existing OpenShift environment.
 
-== Then Do that.
+== Installation
+The installation of the OCF EA assumes that one already has an existing
+OpenShift environment available and accessible. No special cluster
+permissions or settings are required to deploy the OCF infrastructure.
+
+[NOTE]
+====
+Please see the `oc cluster` appendix for information on testing locally.
+====
+
+=== Installation Prerequisites
+
+==== Resource Requirements
+
+The OCF instrastructure has several parts, each with different resource requirements:
+
+* `controller`
+** 512 Mi of memory
+* `couchdb`
+** 512 Mi of memory
+** 500 milicores of CPU
+* `invoker`
+** 1 Gi of memory
+** 500 milicores of CPU
+* `nginx`
+** The `nginx` container inherits project defaults
+* `strimzi`
+** The `strimzi` container inherits project defaults
+* `alarmprovider`
+** The `alarmprovider` container inherits project defaults
+
+There are a number of other jobs and activities that will run with project
+defaults as well.
+
+In total, it is recommended that you have a minimum of **4 GiB of memory**
+and **4 CPU cores** available to run the OCF infrastructure. These are the
+bare minimums for testing.
+
+Additionally, you may wish to have a few gigabytes of persistent storage
+available. Persistent storage is used so that you can retain the various
+settings, function definitions, history and etc. In the case of crashes or
+other malfunctions, having persistent storage is going to make things much
+easier, so it is strongly encouraged to follow the notes below regarding
+provisioning an environment that can use it.
+
+==== Disconnected Installations
+
+If your OpenShift environment is not connected to the internet, you will need
+to fetch container images ahead of time and will need to modify the OCF
+deployment template. You must download the following container images in
+advance of attempting to install/deploy OCF:
+
+* `projectodd/controller`
+* `projectodd/invoker`
+* `projectodd/action-nodejs-6`
+* `projectodd/action-nodejs-8`
+* `projectodd/action-java-8`
+* `projectodd/action-python-3`
+* `projectodd/action-python-2`
+* `projectodd/action-php-7`
+* `projectodd/whisk_couchdb`
+* `projectodd/whisk_alarms`
+* `projectodd/whisk_catalog`
+* `projectodd/dockerskeleton`
+* `openwhisk/alarmprovider`
+* `centos/nginx-112-centos7`
+* `strimzi/cluster-controller`
+* `busybox`
+
+The easiest way to do this will be from a RHEL7 or Fedora 27+ host with the
+`podman` package installed. **As the `root` user** In a folder where you want
+the exported images to land, you can run the `image-pull.sh` script from this
+early access repository:
+
+```bash
+cd
+mkdir images
+cd images
+wget https://raw.githubusercontent.com/openshift-cloud-functions/early-access/master/image-pull.sh
+bash image-pull.sh
+```
+
+Once you have all of the tarballs, you can transfer them to a host with
+access to your OpenShift cluster. More importantly, it needs to be on the
+OpenShift SDN, or you need to have your registry exposed externally so that
+images can be pushed into it. It will also need `podman` installed. See the
+additional notes below in the **Deploying OCF** section for what to do in
+disconnected environments.
+
+=== Deploying OCF
+
+==== Create a Project
+You will want a project to hold the OCF infrastructure. Be sure that it has
+sufficient quota, limits, and requests to accommodate the resource
+requirements detailed above.
+
+```
+oc new-project ocf-infra
+```
+
+You will then deploy the OCF infrastructure into this project.
+
+[NOTE]
+====
+In a disconnected environment you will need to load the images into the
+OpenShift registry before you can deploy the OCF infrastructure. Now that you
+have a project, you also have a place in the registry to push the images. On
+the system with SDN access to your OpenShift environment, and in a folder
+with **only** the tarballs from earlier, perform the following commands
+logged in to OpenShift with a user account that has at least `cluster-reader`
+privileges (you need access to the `openshift` project serviceaccounts and
+secrets) and **as the `root` system user**:
+
+```bash
+cd folder-with-tarballs
+wget https://raw.githubusercontent.com/openshift-cloud-functions/early-access/master/image-push.sh
+bash image-push.sh
+```
+
+This script will also create the `ocf-infra` project for you.
+====
+
+==== Process the Template
+We have conveniently provided an OpenShift template that will deploy all of
+the objects required to run the OCF infrastructure. It contains many sensible
+defaults and aligns with the resource requirements detailed above. 
+
+[NOTE]
+====
+For disconnected installations, there is a slightly modified template that
+you will need to use:
+
+    oc process -f https://raw.githubusercontent.com/openshift-cloud-functions/early-access/master/template.yaml | oc create -f -
+
+If you would like to use persistent storage with your OCF installation, use
+the following template which includes PersistentVolumeClaims:
+
+    oc process -f https://raw.githubusercontent.com/openshift-cloud-functions/early-access/master/persistent-template.yaml | oc create -f -
+
+Please skip the next step.
+
+====
+
+To instantiate the OCF infrastructure, simply `process` the template:
+
+```
+oc process -f https://git.io/openwhisk-template | oc create -f -
+```
+
+Or, alternatively, if you want to use persistent storage (with PersistentVolumeClaims) you can do the following:
+
+```
+oc process -f https://raw.githubusercontent.com/projectodd/openwhisk-openshift/master/persistent-template.yml | oc create -f -
+```
+
+[NOTE]
+====
+If you want a more heavy-duty and higher-powered OCF deployment, there is an
+environment file that can be used with either template (disconnected or
+otherwise). It increases the resources of individual components (CPU/memory)
+and also increases the count of some components (eg: couchdb). First, fetch
+the file:
+
+    https://raw.githubusercontent.com/projectodd/openwhisk-openshift/master/larger.env
+
+If you don't want to use persistent storage, you will need to remove the
+lines in `larger.env` that have `_VOLUME_CAPACITY`.
+
+Then, you can use this file with `process`:
+
+    oc process -f ... --param-file=larger.env ...
+
+Using the larger environment will consume significantly more resources. You
+will need at least **20Gi of memory** and **8 CPUs** across your OpenShift
+infrastructure.
+====
+
+=== Wait for Success
+Eventually all of the pods will start running. After a few minutes, execute
+`oc get pods` and you should see output that looks similar to the following:
+
+```
+NAME                                         READY     STATUS      RESTARTS   AGE
+alarmprovider-574d685789-djfpq               1/1       Running     0          13m
+controller-0                                 1/1       Running     2          13m
+couchdb-0                                    1/1       Running     0          13m
+install-catalog-7p8c8                        0/1       Completed   0          13m
+invoker-0                                    1/1       Running     0          13m
+nginx-648445cbd9-2j2jd                       1/1       Running     0          13m
+preload-openwhisk-runtimes-z9krn             0/1       Completed   0          13m
+refresh-activations-1528129200-697t7         0/1       Completed   0          2m
+strimzi-cluster-controller-778d94d86-pxc2c   1/1       Running     0          13m
+strimzi-openwhisk-kafka-0                    1/1       Running     0          13m
+strimzi-openwhisk-zookeeper-0                1/1       Running     0          13m
+wskinvoker-00-1-prewarm-nodejs6              1/1       Running     0          10m
+wskinvoker-00-2-prewarm-nodejs6              1/1       Running     0          10m
+```
+
+[NOTE]
+====
+If you are using the "larger" environment files then you will likely see a
+larger quantity of pods in the output.
+====
+
+Notice that all pods are either `Running` and are `1/1` for `READY` or are
+`Completed`. If you have any failures or errors you probably need to contact
+us so that we can figure out what is wrong.
+
+==== Install the OpenWhisk CLI
+OpenShift Cloud Functions still directly uses the `wsk` CLI from the
+OpenWhisk project. You can download a CLI for your system from the following
+URL:
+
+    https://github.com/projectodd/openwhisk-openshift/releases/tag/latest
+
+The CLI will talk to OpenShift Cloud Functions' APIs which means that it will
+need to be on a host that will have network access to the OpenShift
+environment through OpenShift's router. You will also want this host to have
+the `oc` binary installed.
+
+Unpack the `wsk` binary into a folder that is in your path, and then simply
+execute `wsk` to validate that it is working. You will see something like the following:
+
+```
+
+        ____      ___                   _    _ _     _     _
+       /\   \    / _ \ _ __   ___ _ __ | |  | | |__ (_)___| | __
+  /\  /__\   \  | | | | '_ \ / _ \ '_ \| |  | | '_ \| / __| |/ /
+ /  \____ \  /  | |_| | |_) |  __/ | | | |/\| | | | | \__ \   <
+ \   \  /  \/    \___/| .__/ \___|_| |_|__/\__|_| |_|_|___/_|\_\
+  \___\/ tm           |_|
+
+Usage:
+  wsk [command]
+...
+```
+
+== Initial Configuration
+Now that OpenShift Cloud Functions is installed, you have to do some basic
+configuration before it will be very useful.
+
+=== Configure CLI
+Since you have previously gotten `wsk` working, and you have `oc` installed
+and working, first make sure you are logged in to OpenShift with a user that
+has `edit` access to the `ocf-infra` project:
+
+    oc login -u someuser
+    oc project ocf-infra
+
+You can then run the following two commands to configure the `wsk` CLI to be
+able to talk to the OpenShift Cloud Functions API:
+
+    AUTH_SECRET=$(oc get secret whisk.auth -o yaml | grep "system:" | awk '{print $2}' | base64 --decode)
+    wsk property set --auth $AUTH_SECRET --apihost $(oc get route/openwhisk --template="{{.spec.host}}")
+
+=== Validate CLI
+Now, you can validate that you can correctly talk to OCF. Use the `-i` option
+to avoid the validation error triggered by the self-signed cert in the
+`nginx` service.
+
+    wsk -i list
+    wsk -i action invoke /whisk.system/utils/echo -p message hello -b
+
+If these two commands work, you are up, running, and ready to continue!
+
+// TODO: People might want to use their own certificates. Do we have a way to do this?
+
+== Getting Started
+There are many existing exercises and examples in the OpenShift Cloud
+Functions scenarios that can be found here:
+
+    https://learn.openshift.com/serverless/
+
+You should take some time to go through these scenarios but, instead of
+executing them in your browser, run the commands locally against your
+OpenShift Cloud Functions environment.
+
+If you have any problems, please make sure to contact us.
+
+== Now What?
+Now that you have a general understanding of how OpenWhisk / OpenShift Cloud
+Functions works, go ahead and try to come up with your own scenarios and
+integrate it into your applications and workflows.
+
+== Local OpenShift Cluster
+For local testing purposes, one can use an OpenShift environment provided via
+`oc cluster`, a subcommand built into the OpenShift CLI. However, with
+OpenShift 3.9 there is an issue regarding using ImageStreams for the source
+of Kubernetes resources (Deployments and others).
+
+You will need to make sure you are persisting your `oc cluster` config and
+data somewhere, and then stop your cluster, and edit the `master-config.yaml`
+to have the following stanza in the `admissionConfig` section:
+
+```YAML
+admissionConfig:
+  pluginConfig:
+    GenericAdmissionWebhook:
+      configuration:
+        apiVersion: v1
+        disable: false
+        kind: DefaultAdmissionConfig
+      location: ""
+    openshift.io/ImagePolicy:
+      configuration:
+        apiVersion: v1
+        executionRules:
+        - matchImageAnnotations:
+          - key: images.openshift.io/deny-execution
+            value: "true"
+          name: execution-denied
+          onResources:
+          - resource: pods
+          - resource: builds
+          reject: true
+          skipOnResolutionFailure: true
+        kind: ImagePolicyConfig
+      location: ""
+```
+
+There are actually two `admissionConfig` sections. You want the one at the
+top of the config file and not the one that is nested under
+`kubernetesMasterConfig`.
+
+Once this change is made, you can restart your cluster and then follow the
+installation/configuration instructions for OpenShift Cloud Functions.
